@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">RedWorld AI</string>
+    <string name="app_full_title">RedWorld AI Studio</string>
+    <string name="app_subtitle">Единое рабочее пространство ИИ и канона RedWorld</string>
+    <string name="nav_home">Главная</string>
+    <string name="nav_gemini">Gemini</string>
+    <string name="nav_notebooklm">NotebookLM</string>
+    <string name="nav_image_studio">Генерация</string>
+    <string name="nav_redworld">RedWorld</string>
+    <string name="drawer_knowledge">База знаний (RAG)</string>
+    <string name="drawer_map">Карта связей</string>
+    <string name="drawer_ai_assistant">ИИ-Куратор RedWorld</string>
+    <string name="drawer_xlsx">Редактор таблиц XLSX</string>
+    <string name="drawer_files_drive">Файлы и Google Drive</string>
+    <string name="drawer_connections">Подключения и API</string>
+    <string name="drawer_backups">Версии и Бэкапы</string>
+    <string name="drawer_guide">Документация и Справка</string>
+    <string name="security_warning_prototype">Security Warning: API-ключ из BuildConfig включён в прототип APK. Не публикуйте этот APK в открытом доступе.</string>
+</resources>

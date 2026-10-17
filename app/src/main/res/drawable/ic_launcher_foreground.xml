@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Crimson Crest -->
+    <path
+        android:fillColor="#E11D48"
+        android:pathData="M54,22 L78,38 L70,74 L54,86 L38,74 L30,38 Z" />
+    <!-- Inner Obsidian Core -->
+    <path
+        android:fillColor="#1A050A"
+        android:pathData="M54,28 L72,41 L65,70 L54,79 L43,70 L36,41 Z" />
+    <!-- Glowing Ruby Neural Diamond -->
+    <path
+        android:fillColor="#FB7185"
+        android:pathData="M54,34 L66,52 L54,70 L42,52 Z" />
+    <!-- Center Gold Star / Spark -->
+    <path
+        android:fillColor="#FDE047"
+        android:pathData="M54,43 L57,50 L64,52 L57,54 L54,61 L51,54 L44,52 L51,50 Z" />
+    <!-- Neural Nodes -->
+    <path
+        android:fillColor="#FFE4E6"
+        android:pathData="M54,25 A2.5,2.5 0 1,1 53.99,25 Z" />
+    <path
+        android:fillColor="#FFE4E6"
+        android:pathData="M34,42 A2,2 0 1,1 33.99,42 Z" />
+    <path
+        android:fillColor="#FFE4E6"
+        android:pathData="M74,42 A2,2 0 1,1 73.99,42 Z" />
+</vector>
