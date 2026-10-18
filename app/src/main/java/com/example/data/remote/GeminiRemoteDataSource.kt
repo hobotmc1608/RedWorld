@@ -49,6 +49,7 @@ data class GenerationConfig(
     val temperature: Float? = null,
     val topP: Float? = null,
     val topK: Int? = null,
+    val maxOutputTokens: Int? = null,
     val imageConfig: ImageConfig? = null,
     val responseModalities: List<String>? = null
 )
@@ -208,11 +209,13 @@ class GeminiRemoteDataSource {
         modelId: String,
         conversationHistory: List<Content>,
         systemInstructionText: String? = null,
-        temperature: Float = 0.7f
+        temperature: Float = 0.7f,
+        topP: Float = 0.95f,
+        maxOutputTokens: Int? = null
     ): GeminiResult<String> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
             return@withContext GeminiResult.Error(
-                userMessage = "API-ключ Gemini не настроен. Укажите ключ в разделе «Подключения и API» или через панель Secrets в AI Studio.",
+                userMessage = "API-ключ Gemini не настроен. Укажите ключ в разделе «Настройки → ИИ и модели» или через панель Secrets в AI Studio.",
                 technicalDetails = "Missing GEMINI_API_KEY"
             )
         }
@@ -221,7 +224,8 @@ class GeminiRemoteDataSource {
             contents = conversationHistory,
             generationConfig = GenerationConfig(
                 temperature = temperature,
-                topP = 0.95f
+                topP = topP,
+                maxOutputTokens = maxOutputTokens
             ),
             systemInstruction = systemInstructionText?.takeIf { it.isNotBlank() }?.let {
                 Content(parts = listOf(Part(text = it)))

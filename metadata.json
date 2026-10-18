@@ -1,6 +1,6 @@
 {
-  "name": "RedWorld AI Studio",
-  "description": "Unified Android workspace combining Gemini AI, NotebookLM integration, RedWorld Knowledge RAG system, Image Studio, RedWorld Lore & Character Editor with XLSX preservation, Visual Relationship Map, and Google Drive synchronization.",
+  "name": "World AI Studio",
+  "description": "Multi-project Android workspace combining Gemini AI, Google NotebookLM notebook & note integration into custom worlds, Knowledge RAG system, Image Studio with character references & prompts, Lore & Character Editor with AI file parsing and XLSX preservation, Visual Relationship Map, and Google Drive synchronization.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

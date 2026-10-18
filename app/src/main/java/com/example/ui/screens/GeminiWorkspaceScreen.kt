@@ -80,6 +80,8 @@ import com.example.data.local.ChatMessageEntity
 import com.example.data.local.ChatSessionEntity
 import com.example.data.local.KnowledgeDocumentWithDetails
 import com.example.data.preferences.StudioPreferences
+import com.example.data.remote.AiProviderType
+import com.example.data.remote.SupportedAiModels
 import com.example.data.remote.SupportedGeminiModels
 import com.example.data.repository.AiChangeProposal
 import com.example.data.repository.CitedSourceSnippet
@@ -118,6 +120,7 @@ fun GeminiWorkspaceScreen(
     onRenameSession: (Long, String) -> Unit,
     onDeleteSession: (Long) -> Unit,
     onSelectModel: (String) -> Unit,
+    onSelectProvider: (AiProviderType) -> Unit = {},
     onToggleRedWorldContext: (ChatSessionEntity, Boolean) -> Unit,
     onToggleDocInContext: (ChatSessionEntity, Long) -> Unit,
     onSetAssistantMode: (ChatSessionEntity, String) -> Unit,
@@ -235,7 +238,12 @@ fun GeminiWorkspaceScreen(
             }
         }
 
-        // 2. Model Selector + RedWorld RAG Context + Assistant Mode Bar
+        val activeProvider = prefs.activeProviderType
+        val activeModelId = prefs.activeProviderTextModel
+        val activeProviderModels = SupportedAiModels.modelsForProvider(activeProvider)
+        val customModelId = prefs.customModelIdFor(activeProvider).trim()
+
+        // 2. Provider + Model Selector + RedWorld RAG Context + Assistant Mode Bar
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -247,6 +255,32 @@ fun GeminiWorkspaceScreen(
             Column(modifier = Modifier.padding(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AiProviderType.entries.forEach { provider ->
+                        val isProvSelected = provider == activeProvider
+                        FilterChip(
+                            selected = isProvSelected,
+                            onClick = { onSelectProvider(provider) },
+                            label = {
+                                Text(
+                                    text = provider.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isProvSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = CrimsonPrimary.copy(alpha = 0.28f),
+                                selectedLabelColor = TextIvoryPrimary
+                            ),
+                            modifier = Modifier.testTag("workspace_provider_chip_${provider.id.lowercase()}")
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -254,8 +288,22 @@ fun GeminiWorkspaceScreen(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(SupportedGeminiModels.textModels, key = { it.modelId }) { spec ->
-                            val selected = prefs.selectedTextModel == spec.modelId
+                        if (customModelId.isNotEmpty()) {
+                            item(key = "custom_$customModelId") {
+                                FilterChip(
+                                    selected = true,
+                                    onClick = onOpenApiKeySettings,
+                                    label = {
+                                        Text(
+                                            text = "$customModelId (Свой ID)",
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        items(activeProviderModels, key = { it.modelId }) { spec ->
+                            val selected = customModelId.isEmpty() && activeModelId.equals(spec.modelId, ignoreCase = true)
                             FilterChip(
                                 selected = selected,
                                 onClick = { onSelectModel(spec.modelId) },
@@ -269,8 +317,8 @@ fun GeminiWorkspaceScreen(
                     ) {
                         Icon(
                             Icons.Default.Key,
-                            contentDescription = "Настроить Gemini API Key",
-                            tint = if (prefs.isGeminiKeyConfigured) StatusCanonGreen else AmberGoldSecondary
+                            contentDescription = "Настроить ИИ и API-ключ",
+                            tint = if (prefs.isActiveProviderKeyConfigured) StatusCanonGreen else AmberGoldSecondary
                         )
                     }
                 }
@@ -494,7 +542,7 @@ fun GeminiWorkspaceScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (isUser) "Вы" else "Gemini • ${msg.modelUsed}",
+                                text = if (isUser) "Вы" else SupportedAiModels.resolveProviderAndModelLabel(msg.modelUsed, activeProvider),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = if (isUser) CrimsonPrimary else AmberGoldSecondary,
                                 fontWeight = FontWeight.Bold

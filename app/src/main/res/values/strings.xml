@@ -1,15 +1,15 @@
 <resources>
-    <string name="app_name">RedWorld AI</string>
-    <string name="app_full_title">RedWorld AI Studio</string>
-    <string name="app_subtitle">Единое рабочее пространство ИИ и канона RedWorld</string>
+    <string name="app_name">World AI Studio</string>
+    <string name="app_full_title">World AI Studio</string>
+    <string name="app_subtitle">Мультипроектное пространство ИИ, NotebookLM и создания миров</string>
     <string name="nav_home">Главная</string>
     <string name="nav_gemini">Gemini</string>
     <string name="nav_notebooklm">NotebookLM</string>
     <string name="nav_image_studio">Генерация</string>
-    <string name="nav_redworld">RedWorld</string>
+    <string name="nav_redworld">Мир и Лор</string>
     <string name="drawer_knowledge">База знаний (RAG)</string>
     <string name="drawer_map">Карта связей</string>
-    <string name="drawer_ai_assistant">ИИ-Куратор RedWorld</string>
+    <string name="drawer_ai_assistant">ИИ-Куратор мира</string>
     <string name="drawer_xlsx">Редактор таблиц XLSX</string>
     <string name="drawer_files_drive">Файлы и Google Drive</string>
     <string name="drawer_connections">Подключения и API</string>

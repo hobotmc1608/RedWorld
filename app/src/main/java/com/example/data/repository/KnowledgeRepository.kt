@@ -60,10 +60,12 @@ class KnowledgeRepository(private val knowledgeDao: KnowledgeDao) {
         linkedCharacterIdsCsv: String = "",
         linkedLocationIdsCsv: String = "",
         tagIds: List<Long> = emptyList(),
-        existingId: Long = 0L
+        existingId: Long = 0L,
+        projectId: Long = 1L
     ): Long {
         val doc = KnowledgeDocumentEntity(
             id = existingId,
+            projectId = projectId,
             title = title.trim(),
             fileName = fileName.trim(),
             format = format.name,
@@ -102,7 +104,8 @@ class KnowledgeRepository(private val knowledgeDao: KnowledgeDao) {
         uri: Uri,
         fileName: String,
         folderName: String,
-        collectionName: String
+        collectionName: String,
+        projectId: Long = 1L
     ): Long {
         val (format, extractedText) = DocumentAndXlsxEngine.extractTextFromUri(context, uri, fileName)
         val cleanTitle = fileName.substringBeforeLast('.').ifEmpty { fileName }
@@ -112,7 +115,8 @@ class KnowledgeRepository(private val knowledgeDao: KnowledgeDao) {
             format = format,
             folderName = folderName,
             collectionName = collectionName,
-            contentText = extractedText
+            contentText = extractedText,
+            projectId = projectId
         )
     }
 
@@ -128,6 +132,9 @@ class KnowledgeRepository(private val knowledgeDao: KnowledgeDao) {
         knowledgeDao.setDocumentAiContextAllowed(documentId, allowed)
     }
 
+    suspend fun saveDocumentDirect(doc: KnowledgeDocumentEntity): Long =
+        knowledgeDao.insertDocument(doc.copy(updatedAt = System.currentTimeMillis()))
+
     // --- Notes ---
     suspend fun insertNote(
         title: String,
@@ -137,10 +144,12 @@ class KnowledgeRepository(private val knowledgeDao: KnowledgeDao) {
         linkedCharacterId: Long? = null,
         linkedLocationId: Long? = null,
         isPinned: Boolean = false,
-        tagIds: List<Long> = emptyList()
+        tagIds: List<Long> = emptyList(),
+        projectId: Long = 1L
     ): Long {
         val noteId = knowledgeDao.insertNote(
             KnowledgeNoteEntity(
+                projectId = projectId,
                 documentId = documentId,
                 title = title.trim(),
                 content = content.trim(),

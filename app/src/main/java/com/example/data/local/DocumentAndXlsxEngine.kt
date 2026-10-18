@@ -127,7 +127,7 @@ object DocumentAndXlsxEngine {
     }
 
     /**
-     * Extracts readable text from URI based on detected format (TXT, MD, DOCX, XLSX, PDF).
+     * Extracts readable text from URI based on detected format (DOC, DOCX, PDF, TXT, MD, XLSX, RTF, or any text/binary document).
      */
     suspend fun extractTextFromUri(
         context: Context,
@@ -135,25 +135,26 @@ object DocumentAndXlsxEngine {
         fileName: String
     ): Pair<DocumentFormat, String> = withContext(Dispatchers.IO) {
         val lower = fileName.lowercase()
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: return@withContext DocumentFormat.TXT to ""
+
+        val isZipHeader = bytes.size >= 4 &&
+            bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() &&
+            bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()
+
         val format = when {
             lower.endsWith(".pdf") -> DocumentFormat.PDF
             lower.endsWith(".xlsx") -> DocumentFormat.XLSX
-            lower.endsWith(".docx") -> DocumentFormat.DOCX
+            lower.endsWith(".docx") || lower.endsWith(".doc") -> DocumentFormat.DOCX
             lower.endsWith(".md") || lower.endsWith(".markdown") -> DocumentFormat.MARKDOWN
             else -> DocumentFormat.TXT
         }
 
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: return@withContext format to ""
-
-        val text = when (format) {
-            DocumentFormat.TXT, DocumentFormat.MARKDOWN -> {
-                String(bytes, StandardCharsets.UTF_8)
+        val text = when {
+            format == DocumentFormat.PDF -> {
+                extractTextOrMetadataFromPdf(context, bytes, fileName)
             }
-            DocumentFormat.DOCX -> {
-                extractTextFromDocxBytes(bytes)
-            }
-            DocumentFormat.XLSX -> {
+            format == DocumentFormat.XLSX -> {
                 val destFile = File(context.filesDir, "imported_${System.currentTimeMillis()}_$fileName")
                 destFile.writeBytes(bytes)
                 val workbook = parseXlsxFile(destFile)
@@ -175,8 +176,14 @@ object DocumentAndXlsxEngine {
                     }
                 }
             }
-            DocumentFormat.PDF -> {
-                extractTextOrMetadataFromPdf(context, bytes, fileName)
+            lower.endsWith(".docx") || (lower.endsWith(".doc") && isZipHeader) -> {
+                extractTextFromDocxBytes(bytes)
+            }
+            lower.endsWith(".doc") || lower.endsWith(".rtf") -> {
+                extractTextFromLegacyDocOrRtfBytes(bytes)
+            }
+            else -> {
+                String(bytes, StandardCharsets.UTF_8)
             }
         }
         format to text
@@ -205,9 +212,328 @@ object DocumentAndXlsxEngine {
                 }
             }
         } catch (e: Exception) {
-            return "Ошибка чтения DOCX: ${e.localizedMessage}"
+            return extractTextFromLegacyDocOrRtfBytes(bytes)
         }
-        return sb.toString().trim()
+        val result = sb.toString().trim()
+        return if (result.isNotEmpty()) result else extractTextFromLegacyDocOrRtfBytes(bytes)
+    }
+
+    /**
+     * Extracts readable Russian/English text from legacy MS Word .doc (OLE2 binary, Word XML, RTF, or plain text with .doc extension).
+     */
+    private fun extractTextFromLegacyDocOrRtfBytes(bytes: ByteArray): String {
+        if (bytes.isEmpty()) return ""
+        val utf8Candidate = String(bytes, StandardCharsets.UTF_8)
+        // Check if it is plain UTF-8 text or Markdown saved with .doc extension
+        val printableRatio = utf8Candidate.count { it.isLetterOrDigit() || it.isWhitespace() || it in ".,:;!?-—()«»\"'/#" }.toFloat() /
+            utf8Candidate.length.coerceAtLeast(1)
+        if (printableRatio > 0.82f && !utf8Candidate.startsWith("{\\rtf")) {
+            return utf8Candidate.trim()
+        }
+        // Check if RTF
+        if (utf8Candidate.startsWith("{\\rtf")) {
+            return utf8Candidate
+                .replace(Regex("""\\par\b"""), "\n")
+                .replace(Regex("""\\[a-zA-Z]+\d*\s?"""), "")
+                .replace(Regex("""[{}]"""), "")
+                .trim()
+        }
+        // Binary .doc (OLE2) often stores Unicode text in UTF-16LE and/or UTF-8 chunks
+        val utf16Candidate = try {
+            String(bytes, StandardCharsets.UTF_16LE)
+        } catch (_: Exception) {
+            ""
+        }
+        val runs16 = Regex("""[А-Яа-яЁёA-Za-z0-9\s.,:;!?\-—()«»"'\n]{6,}""")
+            .findAll(utf16Candidate)
+            .map { it.value.trim() }
+            .filter { run -> run.count { it.isLetter() } >= 4 }
+            .toList()
+        if (runs16.sumOf { it.length } > 40) {
+            return runs16.joinToString("\n")
+        }
+        val runs8 = Regex("""[А-Яа-яЁёA-Za-z0-9\s.,:;!?\-—()«»"'\n]{6,}""")
+            .findAll(utf8Candidate)
+            .map { it.value.trim() }
+            .filter { run -> run.count { it.isLetter() } >= 4 }
+            .toList()
+        return runs8.joinToString("\n").trim()
+    }
+
+    /**
+     * Built-in sample .DOC character dossiers so the user can test 1-click AI extraction and
+     * automatic relationship linking (e.g. Marcus Vane <-> Victor Corvin & Elena Rostova & Lidia Morgan).
+     */
+    fun getSampleCharacterDocDossiers(): List<Pair<String, String>> = listOf(
+        "Маркус_Вейн_Досье.doc" to """
+            ДОСЬЕ ПЕРСОНАЖА REDWORLD (Формат DOC)
+            Имя: Маркус Вейн
+            Полное имя: Маркус Эдвард Вейн
+            Псевдонимы: Часовщик Зелёной улицы, Старый Маркус
+            Роль в сюжете: Союзник
+            Статус персонажа: Активен
+            Фракция: Гильдия независимых мастеров Зелёной улицы
+            Теги: Магазин, Артефакты, Часовщик, Нейтралитет, Информатор
+            Пол: Мужской
+            Происхождение: Человек
+            Краткое описание: Владелец антикварного и технического Магазина на Зелёной улице, главный эксперт по механизмам и старинным артефактам.
+            Подробная биография: Потомственный часовщик и инженер из Северного порта. Перебрался на Зелёную улицу двадцать лет назад и превратил свой антикварный магазин в нейтральную гавань для искателей и хранителей тайн.
+            Дата рождения: 22 августа 1974
+            Возраст: 51
+            Место рождения: Северный порт
+            Работа: Владелец антикварного и технического Магазина на Зелёной улице
+            Внешность: Коренастый мужчина с седыми висками, внимательным прищуром и спокойной осанкой мастера.
+            Телосложение: Плотное, крепкое
+            Волосы: Тёмно-русые с густой благородной сединой
+            Глаза: Изумрудно-зелёные за тонкими линзами очков
+            Голос: Глуховатый баритон с лёгким металлическим тембром и размеренными паузами
+            Одежда: Твидовый жилет цвета тёмной бронзы, кожаный фартук часовщика, латунный хронометр на цепочке.
+            Особые приметы: Следы тонких ожогов от пайки на пальцах правой руки, антикварный перстень с рубиновой гранью.
+            Характер: Прагматичный, рассудительный, ценит точность сделок и хранит чужие секреты.
+            Архетип: Мудрый ремесленник / Хранитель артефактов
+            Привычки: Протирает оптические линзы бархатной салфеткой во время сложных переговоров.
+            Манера речи: Неторопливая, с использованием технических и часовых метафор.
+            Характерные фразы: «У каждого механизма свой запас хода»; «На Зелёной улице платят точностью, а не обещаниями».
+            Навыки: Реставрация редких механизмов, экспертиза артефактов, дешифровка старых носителей данных.
+            Сильные стороны: Безупречная память на клейма мастеров, хладнокровие, широкая сеть поставщиков.
+            Слабые стороны: Старая травма колена, недоверие к быстрым сделкам без залога.
+            Инвентарь: Латунный хронометр, набор ювелирных отмычек, журнал залогов, часовая лупа с рубиновым фильтром.
+            Интересы: Довоенная картография, акустические пластинки, редкие сорта чая.
+            Предпочтения: Улун в фарфоровой пиале, порядок на верстаке в задней комнате Магазина.
+            Не любит: Шумных визитёров, поддельные печати и попытки торговаться после удара по рукам.
+            Цели: Восстановить утраченный механизм башенных часов Красного особняка и защитить нейтралитет Зелёной улицы.
+            Мотивация: Сохранение ремесленного наследия старого квартала.
+            Внутренний конфликт: Знает, что его старый чертёж может открыть нижний свод архива, но опасается последствий.
+            Страхи и ограничения: Опасается пожара в мастерской; связан клятвой гильдии не раскрывать имена заказчиков.
+            Известные факты: Знает устройство замков Красного особняка и тайные поставки между Магазином и Баром.
+            Личные тайны: Хранит в двойном дне сейфа дубликат шестерни башенных часов Виктора Корвина.
+            Чего персонаж не знает: Не знает истинного содержания зашифрованного дневника Елены Ростовой.
+            Поведение: Никогда не продаёт опасные артефакты случайным посетителям без проверки через архив.
+            Локация сейчас: Магазин
+            Состояние сейчас: Разбирает шифрованный тубус в мастерской Магазина
+            Здоровье сейчас: В норме
+            Текущая одежда: Рабочий жилет и часовая лупа
+            Активная цель: Передать расшифрованную схему Виктору Корвину и предупредить Елену Ростову
+            Паспорт внешности: Portrait of Marcus Vane, 51 year old master watchmaker and antique shop owner, silver-streaked dark hair, emerald green eyes behind thin brass spectacles, wearing a dark bronze tweed vest and leather craftsman apron, warm antique shop lighting with brass gears and ruby glass reflections, RedWorld gothic noir concept art.
+            Промпт 1 [Портрет | Портрет в антикварной лавке]: Portrait of Marcus Vane behind the glass counter of the Green Street Antique Shop, brass spectacles, emerald eyes, holding an intricate ruby chronometer, moody crimson and amber lighting, 8k concept art
+            Промпт 2 [Иллюстрации игровых сцен | Тайная экспертиза в мастерской]: Cinematic scene of Marcus Vane in the backroom workshop of the Shop on Green Street, examining a cipher cylinder under a magnifying lamp, shelves of rare artifacts
+            Связь: Виктор Корвин | CHARACTER | Знаком с | Давний партнёр и консультант Хранителя архива Красного особняка по старинным механизмам
+            Связь: Елена Ростова | CHARACTER | Друг | Снабжает Елену редким снаряжением, плёнкой и сведениями о посетителях Зелёной улицы
+            Связь: Лидия Морган | CHARACTER | Коллега | Поставляет редкие музыкальные пластинки и закрытые письма для хозяйки Бара «Алый Бархат»
+            Связь: Магазин | LOCATION | Работает в | Владелец и главный мастер антикварного магазина на Зелёной улице
+        """.trimIndent(),
+        "Лидия_Морган_Досье.doc" to """
+            ДОСЬЕ ПЕРСОНАЖА REDWORLD (Формат DOC)
+            Имя: Лидия Морган
+            Полное имя: Лидия Виктория Морган
+            Псевдонимы: Хозяйка «Алого Бархата», Мадам Лидия
+            Роль в сюжете: Ключевой персонаж
+            Статус персонажа: Активен
+            Фракция: Клуб «Алый Бархат» (Зелёная улица)
+            Теги: Бар, Дипломатия, Нейтралитет, Информационная сеть
+            Пол: Женский
+            Происхождение: Человек
+            Краткое описание: Владелица и управляющая ночного Бара «Алый Бархат» на Зелёной улице, хранительница негласного перемирия.
+            Подробная биография: Выросла в Южном квартале, начинала как певица и организатор закрытых вечеров, а затем выкупила Бар на Зелёной улице, сделав его главной дипломатической площадкой города.
+            Дата рождения: 19 февраля 1990
+            Возраст: 35
+            Место рождения: Южный квартал
+            Работа: Владелица и управляющая ночного Бара «Алый Бархат» на Зелёной улице
+            Внешность: Элегантная высокая женщина с аристократичной осанкой и бархатным голосом.
+            Телосложение: Стройное, грациозное
+            Волосы: Тёмно-каштановые, уложенные мягкими волнами
+            Глаза: Тёмно-карие с золотистой искрой
+            Голос: Грудной, мягкий, с певучими джазовыми интонациями
+            Одежда: Вечернее платье цвета тёмного бордо, серебряный браслет и брошь с гранатом.
+            Особые приметы: Родинка у левого уголка губ, гранатовая брошь-ключ.
+            Характер: Дипломатичная, проницательная, умеет гасить конфликты одним взглядом.
+            Архетип: Хозяйка салона / Теневой дипломат
+            Привычки: Ставит джазовый винил перед закрытием Бара, ведёт тайный реестр гостей.
+            Манера речи: Мягкая, обволакивающая, но не допускающая возражений при нарушении правил Бара.
+            Характерные фразы: «Оружие и обиды остаются у гардероба»; «В Алом Бархате каждый бокал помнит своего гостя».
+            Навыки: Дипломатия, сбор неформальной информации, управление заведением, психология.
+            Сильные стороны: Чтение невербальных сигналов, абсолютный авторитет среди завсегдатаев Бара.
+            Слабые стороны: Зависимость безопасности Бара от соблюдения перемирия между фракциями.
+            Инвентарь: Гранатовая брошь-ключ от VIP-ложи, книга резервов в кожаном переплёте, коллекционный винил.
+            Интересы: Джазовые пластинки, редкие коктейли, история семей Красного особняка.
+            Предпочтения: Гранатовый аперитив, полумрак угловой ложи Бара.
+            Не любит: Нарушителей кодекса нейтралитета и непрошеных соглядатаев.
+            Цели: Удержать правило абсолютного нейтралитета в Баре «Алый Бархат».
+            Мотивация: Независимость и защита информационной сети Зелёной улицы.
+            Внутренний конфликт: Вынуждена балансировать между интересами Красного особняка и независимыми жителями улицы.
+            Страхи и ограничения: Не может открыто занять ничью сторону, иначе Бар потеряет статус нейтральной территории.
+            Известные факты: Знает расписание закрытых встреч в VIP-ложе и должников Зелёной улицы.
+            Личные тайны: Хранит записи разговоров из третьей кабинки за последние три года.
+            Чего персонаж не знает: Не знает, кто именно отправил анонимное приглашение в Красный особняк.
+            Поведение: Защищает гостей своего заведения, но строго наказывает за нарушение перемирия.
+            Локация сейчас: Бар
+            Состояние сейчас: Встречает вечерних гостей у стойки Бара «Алый Бархат»
+            Здоровье сейчас: В норме
+            Текущая одежда: Бордовое бархатное платье с гранатовой брошью
+            Активная цель: Обсудить с Маркусом Вейном и Еленой Ростовой появление незнакомцев на Зелёной улице
+            Паспорт внешности: Portrait of Lidia Morgan, 35 year old owner of the Crimson Velvet Bar, dark wavy chestnut hair, warm dark brown eyes with golden flecks, wearing an elegant deep burgundy velvet evening dress and garnet brooch, moody jazz bar lighting, noir concept art.
+            Промпт 1 [Портрет | Хозяйка Бара Алый Бархат]: Portrait of Lidia Morgan standing by a vintage vinyl turntable in the Crimson Velvet Bar, deep burgundy velvet dress, garnet brooch, warm amber and crimson neon reflections
+            Связь: Маркус Вейн | CHARACTER | Коллега | Обменивается редкими заказами и новостями Зелёной улицы с владельцем Магазина
+            Связь: Елена Ростова | CHARACTER | Знаком с | Предоставляет Елене звукоизолированную кабинку в Баре для встреч с информаторами
+            Связь: Виктор Корвин | CHARACTER | Знаком с | Соблюдает негласный пакт о нейтралитете с Хранителем Красного особняка
+            Связь: Бар | LOCATION | Работает в | Хозяйка и хранительница нейтралитета Бара «Алый Бархат»
+        """.trimIndent()
+    )
+
+    /**
+     * Parses any raw document text (from .doc, .docx, .pdf, .txt, .md, .xlsx) into a structured
+     * [AiExtractedCharacterDossier] including permanent lore, current state, visual passport,
+     * saved prompts, and declared relationships for automatic linking.
+     */
+    fun parseCharacterDossierLocally(rawText: String, fileName: String): AiExtractedCharacterDossier {
+        val lines = rawText.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+        fun findValue(vararg keys: String): String {
+            for (line in lines) {
+                for (k in keys) {
+                    val regex = Regex("""^[-*•]?\s*${Regex.escape(k)}\s*[:—\-]\s*(.+)$""", RegexOption.IGNORE_CASE)
+                    val m = regex.find(line)
+                    if (m != null) return m.groupValues[1].trim()
+                }
+            }
+            return ""
+        }
+
+        val extractedName = findValue("Имя", "Имя персонажа", "ФИО", "Персонаж", "Name")
+            .ifEmpty {
+                lines.firstOrNull { !it.contains("ДОСЬЕ", ignoreCase = true) && !it.startsWith("#") && it.length in 3..50 }
+                    ?: fileName.substringBeforeLast('.').replace('_', ' ')
+            }
+
+        val savedPrompts = mutableListOf<CharacterSavedPrompt>()
+        val declaredRels = mutableListOf<DeclaredCharacterRelation>()
+
+        for (line in lines) {
+            if (line.startsWith("Промпт", ignoreCase = true) || line.startsWith("Prompt", ignoreCase = true)) {
+                val afterColon = line.substringAfter(':', "").trim()
+                val bracketMatch = Regex("""\[(.*?)\]""").find(line)
+                val meta = bracketMatch?.groupValues?.get(1).orEmpty()
+                val category = meta.substringBefore('|').trim().ifEmpty { "Портрет" }
+                val title = meta.substringAfter('|', "").trim().ifEmpty { "Промпт из досье" }
+                if (afterColon.isNotEmpty()) {
+                    savedPrompts.add(
+                        CharacterSavedPrompt(
+                            id = "prm_${System.currentTimeMillis()}_${savedPrompts.size}",
+                            title = title,
+                            promptText = afterColon,
+                            category = category
+                        )
+                    )
+                }
+            } else if (line.startsWith("Связь", ignoreCase = true) || line.startsWith("Отношение", ignoreCase = true)) {
+                val payload = line.substringAfter(':', "").trim()
+                val parts = payload.split("|").map { it.trim() }
+                if (parts.isNotEmpty() && parts[0].isNotEmpty()) {
+                    val targetName = parts[0]
+                    val targetType = parts.getOrNull(1)?.takeIf { it == "CHARACTER" || it == "LOCATION" } ?: "CHARACTER"
+                    val relType = parts.getOrNull(2)?.ifEmpty { "Знаком с" } ?: "Знаком с"
+                    val desc = parts.getOrNull(3).orEmpty()
+                    declaredRels.add(
+                        DeclaredCharacterRelation(
+                            targetName = targetName,
+                            targetType = targetType,
+                            relationType = relType,
+                            description = desc
+                        )
+                    )
+                }
+            }
+        }
+
+        val appearance = findValue("Внешность", "Описание внешности", "Appearance")
+        val hair = findValue("Волосы", "Цвет волос", "Hair")
+        val eyes = findValue("Глаза", "Цвет глаз", "Eyes")
+        val clothing = findValue("Одежда", "Повседневная одежда", "Clothing")
+        val visualPassport = findValue("Паспорт внешности", "Visual Passport", "Визуальный паспорт").ifEmpty {
+            buildString {
+                append("Character portrait of $extractedName")
+                if (appearance.isNotBlank()) append(", $appearance")
+                if (hair.isNotBlank()) append(", hair: $hair")
+                if (eyes.isNotBlank()) append(", eyes: $eyes")
+                if (clothing.isNotBlank()) append(", wearing $clothing")
+                append(", RedWorld gothic crimson atmosphere, detailed concept art")
+            }
+        }
+
+        if (savedPrompts.isEmpty() && visualPassport.isNotBlank()) {
+            savedPrompts.add(
+                CharacterSavedPrompt(
+                    id = "prm_auto_${System.currentTimeMillis()}",
+                    title = "Портрет: $extractedName",
+                    promptText = visualPassport,
+                    category = "Портрет"
+                )
+            )
+        }
+
+        val relSummary = findValue("Отношения", "Связи", "Relationships").ifEmpty {
+            declaredRels.joinToString("; ") { "${it.relationType}: ${it.targetName} (${it.description})" }
+        }
+
+        val occupation = findValue("Работа", "Род занятий", "Профессия", "Должность", "Occupation")
+        val shortDesc = findValue("Краткое описание", "Кратко", "Описание", "Short Description").ifEmpty {
+            listOf(occupation, appearance).filter { it.isNotBlank() }.joinToString(". ")
+        }
+
+        return AiExtractedCharacterDossier(
+            name = extractedName,
+            fullName = findValue("Полное имя", "ФИО полностью", "Full Name").ifEmpty { extractedName },
+            aliases = findValue("Псевдонимы", "Псевдоним", "Титул", "Прозвище", "Aliases"),
+            storyRole = findValue("Роль в сюжете", "Сюжетная роль", "Тип персонажа", "Role").ifEmpty { "Ключевой персонаж" },
+            characterStatus = findValue("Статус персонажа", "Статус", "Status").ifEmpty { "Активен" },
+            factionOrGroup = findValue("Фракция", "Организация", "Группа", "Дом", "Орден", "Faction"),
+            tagsCsv = findValue("Теги", "Метки", "Ключевые слова", "Tags"),
+            gender = findValue("Пол", "Gender"),
+            speciesOrOrigin = findValue("Происхождение", "Раса", "Вид", "Народ", "Origin").ifEmpty { "Человек" },
+            shortDescription = shortDesc,
+            detailedDescription = findValue("Подробная биография", "Биография", "История жизни", "Предыстория", "Biography"),
+            birthDate = findValue("Дата рождения", "Родился", "Родилась", "Birth Date"),
+            age = findValue("Возраст", "Лет", "Age"),
+            birthPlace = findValue("Место рождения", "Родной город", "Birth Place"),
+            appearance = appearance,
+            physique = findValue("Телосложение", "Комплекция", "Physique"),
+            hair = hair,
+            eyes = eyes,
+            voiceDescription = findValue("Голос", "Тембр голоса", "Voice"),
+            defaultClothing = clothing,
+            distinguishingMarks = findValue("Особые приметы", "Приметы", "Шрамы", "Distinguishing Marks"),
+            personality = findValue("Характер", "Личность", "Темперамент", "Personality"),
+            archetype = findValue("Архетип", "Психотип", "Archetype"),
+            habits = findValue("Привычки", "Привычка", "Habits"),
+            speechStyle = findValue("Манера речи", "Речь", "Стиль речи", "Speech Style"),
+            catchphrases = findValue("Характерные фразы", "Любимые фразы", "Цитаты", "Catchphrases"),
+            occupation = occupation,
+            skills = findValue("Навыки", "Умения", "Способности", "Skills"),
+            strengths = findValue("Сильные стороны", "Преимущества", "Strengths"),
+            weaknesses = findValue("Слабые стороны", "Уязвимости", "Слабости", "Weaknesses"),
+            inventorySummary = findValue("Инвентарь", "Личные вещи", "Снаряжение", "Предметы", "Inventory"),
+            interests = findValue("Интересы", "Хобби", "Увлечения", "Interests"),
+            preferences = findValue("Предпочтения", "Любит", "Вкусы", "Preferences"),
+            dislikes = findValue("Не любит", "Антипатии", "Раздражает", "Dislikes"),
+            goals = findValue("Цели", "Цель", "Goals"),
+            motivation = findValue("Мотивация", "Мотив", "Motivation"),
+            internalConflict = findValue("Внутренний конфликт", "Дилемма", "Internal Conflict"),
+            fearsAndLimitations = findValue("Страхи и ограничения", "Страхи", "Табу", "Ограничения", "Fears"),
+            knownFacts = findValue("Известные факты", "Знания", "Что знает", "Known Facts"),
+            personalSecrets = findValue("Личные тайны", "Секреты", "Тайна", "Secrets"),
+            unknownFactsRestriction = findValue("Чего персонаж не знает", "Не знает", "Ограничения знаний", "Unknown Facts"),
+            behavioralTraits = findValue("Поведение", "Поведенческие особенности", "Behavior"),
+            currentLocationName = findValue("Локация сейчас", "Текущая локация", "Где находится", "Локация").ifEmpty { "Красный особняк" },
+            currentMoodAndCondition = findValue("Состояние сейчас", "Текущее состояние", "Эмоции").ifEmpty { "Спокоен, сосредоточен" },
+            currentHealthStatus = findValue("Здоровье сейчас", "Здоровье", "Физическое состояние").ifEmpty { "В норме" },
+            currentOutfit = findValue("Текущая одежда", "Одежда в сцене"),
+            currentActiveGoal = findValue("Активная цель", "Текущая задача", "Задача в сцене"),
+            visualPassportPrompt = visualPassport,
+            relationshipsSummary = relSummary,
+            additionalNotes = "Заполнено нейросетью на основе файла: $fileName",
+            savedPrompts = savedPrompts,
+            declaredRelationships = declaredRels
+        )
     }
 
     private fun extractTextOrMetadataFromPdf(

@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -28,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Image
@@ -40,6 +40,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +71,7 @@ import com.example.ui.theme.BurgundyCardBorder
 import com.example.ui.theme.BurgundySurfaceContainer
 import com.example.ui.theme.BurgundySurfaceElevated
 import com.example.ui.theme.CrimsonPrimary
+import com.example.ui.theme.StatusCanonGreen
 import com.example.ui.theme.TextIvoryPrimary
 import com.example.ui.theme.TextMutedRose
 import java.io.ByteArrayOutputStream
@@ -82,7 +85,7 @@ private val PROMPT_TEMPLATES = listOf(
     "Одежда" to "Detailed wardrobe and attire concept art, tailored burgundy fabrics, leather textures and accessories",
     "Интерьер" to "Atmospheric gothic interior of the Red Mansion library, stained glass, warm desk lamps, bookshelves",
     "Экстерьер" to "Rainy evening exterior on Green Street leading to the Red Mansion gates, neon reflections on cobblestones",
-    "Концепт-арт" to "Cinematic environment and mood concept art in the signature RedWorld dark crimson aesthetic",
+    "Концепт-арт" to "Cinematic environment and mood concept art in the signature dark crimson aesthetic",
     "Предметы" to "Detailed prop illustration of a rare artifact from the Green Street Antique Shop, dark velvet background",
     "Иллюстрации игровых сцен" to "Story scene illustration with characters interacting inside the Crimson Velvet Bar, moody lighting"
 )
@@ -97,10 +100,16 @@ fun ImageStudioScreen(
     locations: List<LocationEntity>,
     generatedImages: List<GeneratedImageEntity>,
     promptDraft: String,
+    preselectedCharacterId: Long? = null,
+    preselectedRefBase64: String? = null,
+    preselectedRefTitle: String? = null,
     isGenerating: Boolean,
     onPromptDraftChange: (String) -> Unit,
     onSelectImageModel: (String) -> Unit,
     onApplyVisualPassport: (CharacterEntity, String) -> Unit,
+    onSavePromptToCharacterCard: (CharacterEntity, String, String, String) -> Unit = { _, _, _, _ -> },
+    onSetCharacterAvatar: (CharacterEntity, String) -> Unit = { _, _ -> },
+    onAddCharacterReference: (CharacterEntity, String, String, String) -> Unit = { _, _, _, _ -> },
     onGenerateImage: (String, String, String, String, CharacterEntity?, LocationEntity?, String?) -> Unit,
     onDeleteImage: (GeneratedImageEntity) -> Unit,
     modifier: Modifier = Modifier
@@ -108,10 +117,21 @@ fun ImageStudioScreen(
     val context = LocalContext.current
     var selectedTemplate by remember { mutableStateOf(PROMPT_TEMPLATES.first().first) }
     var selectedAspectRatio by remember { mutableStateOf("1:1") }
-    var selectedCharacter by remember { mutableStateOf<CharacterEntity?>(characters.firstOrNull()) }
-    var selectedLocation by remember { mutableStateOf<LocationEntity?>(locations.firstOrNull()) }
-    var referenceBase64 by remember { mutableStateOf<String?>(null) }
-    var referenceName by remember { mutableStateOf<String?>(null) }
+    var selectedCharacter by remember(characters, preselectedCharacterId) {
+        mutableStateOf(
+            characters.firstOrNull { it.id == preselectedCharacterId } ?: characters.firstOrNull()
+        )
+    }
+    var selectedLocation by remember(locations) { mutableStateOf(locations.firstOrNull()) }
+    var referenceBase64 by remember { mutableStateOf(preselectedRefBase64) }
+    var referenceName by remember { mutableStateOf(preselectedRefTitle) }
+
+    LaunchedEffect(preselectedRefBase64, preselectedRefTitle) {
+        if (!preselectedRefBase64.isNullOrBlank()) {
+            referenceBase64 = preselectedRefBase64
+            referenceName = preselectedRefTitle ?: "Референс персонажа"
+        }
+    }
 
     val refPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -147,12 +167,12 @@ fun ImageStudioScreen(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Image Studio — Генерация и Паспорта внешности RedWorld",
+                        text = "Image Studio — Генерация, Референсы и Промпты персонажей",
                         style = MaterialTheme.typography.titleMedium,
                         color = TextIvoryPrimary
                     )
                     Text(
-                        text = "Доступность генерации изображений зависит от тарифа вашего Gemini API Key и выбранной модели. Перед отправкой вы всегда можете просмотреть и изменить сформированный промпт.",
+                        text = "Выберите персонажа, чтобы обратиться к его аватарке, загруженным референсам и сохранённым промптам из карточки персонажа.",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextMutedRose
                     )
@@ -170,23 +190,20 @@ fun ImageStudioScreen(
             }
         }
 
-        // 2. Character Visual Passport & Location Linking
+        // 2. Character Visual Passport, Avatar, Card References & Saved Prompts
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = BurgundySurfaceElevated),
                 border = BorderStroke(1.dp, BurgundyCardBorder)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(
-                        text = "Утверждённый паспорт внешности персонажа и привязка к локации",
+                        text = "Персонаж, референсы и промпты из карточки",
                         style = MaterialTheme.typography.titleSmall,
                         color = AmberGoldSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Персонаж:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextMutedRose
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(
@@ -206,25 +223,108 @@ fun ImageStudioScreen(
                         }
                     }
 
-                    if (selectedCharacter != null) {
-                        OutlinedButton(
-                            onClick = {
-                                val tpl = PROMPT_TEMPLATES.firstOrNull { it.first == selectedTemplate }?.second.orEmpty()
-                                onApplyVisualPassport(selectedCharacter!!, tpl)
-                            },
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .testTag("apply_visual_passport_button")
+                    val activeChar = selectedCharacter
+                    if (activeChar != null) {
+                        val charRefs = remember(activeChar.referenceImagesJson) {
+                            parseCharacterReferences(activeChar.referenceImagesJson)
+                        }
+                        val charPrompts = remember(activeChar.savedPromptsJson) {
+                            parseCharacterPrompts(activeChar.savedPromptsJson)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CrimsonPrimary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Подготовить промпт по паспорту внешности «${selectedCharacter!!.name}»")
+                            CharacterAvatarThumbnail(
+                                name = activeChar.name,
+                                avatarBase64 = activeChar.avatarBase64,
+                                size = 50.dp
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${activeChar.name} • ${activeChar.occupation.ifEmpty { "Персонаж мира" }}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = TextIvoryPrimary
+                                )
+                                Text(
+                                    text = "Сохранённых промптов: ${charPrompts.size} • Референсов в карточке: ${charRefs.size}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMutedRose
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    val tpl = PROMPT_TEMPLATES.firstOrNull { it.first == selectedTemplate }?.second.orEmpty()
+                                    onApplyVisualPassport(activeChar, tpl)
+                                },
+                                modifier = Modifier.testTag("apply_visual_passport_button")
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CrimsonPrimary, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Паспорт внешности")
+                            }
+                        }
+
+                        // Saved Prompts from Character Card
+                        if (charPrompts.isNotEmpty()) {
+                            HorizontalDivider(color = BurgundyCardBorder)
+                            Text(
+                                text = "Сохранённые промпты из карточки «${activeChar.name}» (нажмите для подстановки):",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = AmberGoldSecondary
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                charPrompts.forEach { prm ->
+                                    AssistChip(
+                                        onClick = {
+                                            selectedTemplate = prm.category
+                                            onPromptDraftChange(prm.promptText)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CrimsonPrimary, modifier = Modifier.size(14.dp))
+                                        },
+                                        label = { Text("${prm.title} (${prm.category})") },
+                                        modifier = Modifier.testTag("use_char_prompt_${prm.id}")
+                                    )
+                                }
+                            }
+                        }
+
+                        // Reference Images & Avatar from Character Card
+                        if (activeChar.avatarBase64.isNotBlank() || charRefs.isNotEmpty()) {
+                            Text(
+                                text = "Референсы из карточки «${activeChar.name}»:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = AmberGoldSecondary
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (activeChar.avatarBase64.isNotBlank()) {
+                                    FilterChip(
+                                        selected = referenceBase64 == activeChar.avatarBase64,
+                                        onClick = {
+                                            referenceBase64 = activeChar.avatarBase64
+                                            referenceName = "Аватарка: ${activeChar.name}"
+                                        },
+                                        label = { Text("Аватарка «${activeChar.name}»") }
+                                    )
+                                }
+                                charRefs.forEach { refItem ->
+                                    FilterChip(
+                                        selected = referenceBase64 == refItem.base64Data,
+                                        onClick = {
+                                            referenceBase64 = refItem.base64Data
+                                            referenceName = refItem.title
+                                        },
+                                        label = { Text(refItem.title) }
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Локация:",
+                        text = "Локация сцены:",
                         style = MaterialTheme.typography.labelMedium,
                         color = TextMutedRose
                     )
@@ -256,7 +356,7 @@ fun ImageStudioScreen(
                 border = BorderStroke(1.dp, BurgundyCardBorder)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Шаблоны промптов RedWorld:", style = MaterialTheme.typography.titleSmall)
+                    Text("Шаблоны промптов:", style = MaterialTheme.typography.titleSmall)
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -299,22 +399,51 @@ fun ImageStudioScreen(
                         minLines = 3
                     )
 
+                    if (referenceName != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "✓ Прикреплён референс: $referenceName",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = StatusCanonGreen
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                refPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    refPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                            ) {
+                                Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Загрузить референс")
                             }
-                        ) {
-                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (referenceName != null) "Референс: $referenceName" else "Загрузить референс")
+
+                            if (selectedCharacter != null && promptDraft.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        onSavePromptToCharacterCard(
+                                            selectedCharacter!!,
+                                            "$selectedTemplate: ${selectedCharacter!!.name}",
+                                            promptDraft,
+                                            selectedTemplate
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("save_prompt_to_character_button")
+                                ) {
+                                    Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("В карточку «${selectedCharacter!!.name}»")
+                                }
+                            }
                         }
 
                         Button(
@@ -398,7 +527,7 @@ fun ImageStudioScreen(
                                         imgRecord.aspectRatio,
                                         selectedCharacter,
                                         selectedLocation,
-                                        null
+                                        referenceBase64
                                     )
                                 }
                             ) {
@@ -429,6 +558,28 @@ fun ImageStudioScreen(
                                     .height(220.dp),
                                 contentScale = ContentScale.Crop
                             )
+                            if (selectedCharacter != null) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AssistChip(
+                                        onClick = {
+                                            onSetCharacterAvatar(selectedCharacter!!, imgRecord.imageBase64OrPath)
+                                        },
+                                        label = { Text("Сделать аватаркой «${selectedCharacter!!.name}»") }
+                                    )
+                                    AssistChip(
+                                        onClick = {
+                                            onAddCharacterReference(
+                                                selectedCharacter!!,
+                                                "${imgRecord.templateCategory}: ${selectedCharacter!!.name}",
+                                                imgRecord.imageBase64OrPath,
+                                                imgRecord.prompt.take(100)
+                                            )
+                                        },
+                                        label = { Text("Сохранить в референсы персонажа") }
+                                    )
+                                }
+                            }
                         }
                     }
 

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "RedWorld AI Studio"
+rootProject.name = "World AI Studio"
 
 include(":app")

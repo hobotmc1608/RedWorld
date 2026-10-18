@@ -11,6 +11,47 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface RedWorldDao {
 
+    // ================= WORLD PROJECTS (MULTI-PROJECT WORKSPACE) =================
+    @Query("SELECT * FROM world_projects ORDER BY id ASC")
+    fun observeProjects(): Flow<List<WorldProjectEntity>>
+
+    @Query("SELECT * FROM world_projects ORDER BY id ASC")
+    suspend fun getAllProjects(): List<WorldProjectEntity>
+
+    @Query("SELECT * FROM world_projects WHERE id = :id LIMIT 1")
+    suspend fun getProjectById(id: Long): WorldProjectEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProject(project: WorldProjectEntity): Long
+
+    @Update
+    suspend fun updateProject(project: WorldProjectEntity)
+
+    @Delete
+    suspend fun deleteProject(project: WorldProjectEntity)
+
+    @Query("SELECT COUNT(*) FROM world_projects")
+    suspend fun getProjectCount(): Int
+
+    // ================= NOTEBOOKLM SYNCED NOTEBOOKS =================
+    @Query("SELECT * FROM notebooklm_synced_notebooks ORDER BY lastSyncedAt DESC")
+    fun observeNotebookLmNotebooks(): Flow<List<NotebookLmNotebookEntity>>
+
+    @Query("SELECT * FROM notebooklm_synced_notebooks ORDER BY lastSyncedAt DESC")
+    suspend fun getAllNotebookLmNotebooks(): List<NotebookLmNotebookEntity>
+
+    @Query("SELECT * FROM notebooklm_synced_notebooks WHERE id = :id LIMIT 1")
+    suspend fun getNotebookLmNotebookById(id: Long): NotebookLmNotebookEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotebookLmNotebook(notebook: NotebookLmNotebookEntity): Long
+
+    @Update
+    suspend fun updateNotebookLmNotebook(notebook: NotebookLmNotebookEntity)
+
+    @Delete
+    suspend fun deleteNotebookLmNotebook(notebook: NotebookLmNotebookEntity)
+
     // ================= CHARACTERS =================
     @Query("SELECT * FROM redworld_characters ORDER BY updatedAt DESC")
     fun observeCharacters(): Flow<List<CharacterEntity>>
@@ -65,9 +106,28 @@ interface RedWorldDao {
     @Delete
     suspend fun deleteWorldRule(rule: WorldRuleEntity)
 
-    // ================= EVENTS & SCENES =================
+    // ================= PLOTLINES (СЮЖЕТ) =================
+    @Query("SELECT * FROM redworld_plotlines ORDER BY updatedAt DESC")
+    fun observePlotlines(): Flow<List<PlotlineEntity>>
+
+    @Query("SELECT * FROM redworld_plotlines ORDER BY updatedAt DESC")
+    suspend fun getAllPlotlines(): List<PlotlineEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlotline(plotline: PlotlineEntity): Long
+
+    @Update
+    suspend fun updatePlotline(plotline: PlotlineEntity)
+
+    @Delete
+    suspend fun deletePlotline(plotline: PlotlineEntity)
+
+    // ================= EVENTS & SCENES (ИСТОРИЯ СОБЫТИЙ) =================
     @Query("SELECT * FROM redworld_events ORDER BY chronologyOrder ASC, createdAt DESC")
     fun observeEvents(): Flow<List<WorldEventEntity>>
+
+    @Query("SELECT * FROM redworld_events ORDER BY chronologyOrder ASC, createdAt DESC")
+    suspend fun getAllEvents(): List<WorldEventEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvent(event: WorldEventEntity): Long
@@ -78,12 +138,18 @@ interface RedWorldDao {
     @Delete
     suspend fun deleteEvent(event: WorldEventEntity)
 
-    // ================= ITEMS & ORGANIZATIONS =================
+    // ================= ITEMS & OBJECTS (ОБЪЕКТЫ) =================
     @Query("SELECT * FROM redworld_items ORDER BY updatedAt DESC")
     fun observeItems(): Flow<List<WorldItemEntity>>
 
+    @Query("SELECT * FROM redworld_items ORDER BY updatedAt DESC")
+    suspend fun getAllItems(): List<WorldItemEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: WorldItemEntity): Long
+
+    @Update
+    suspend fun updateItem(item: WorldItemEntity)
 
     @Delete
     suspend fun deleteItem(item: WorldItemEntity)
@@ -91,6 +157,9 @@ interface RedWorldDao {
     // ================= RELATIONSHIPS (VISUAL MAP) =================
     @Query("SELECT * FROM redworld_relationships ORDER BY updatedAt DESC")
     fun observeRelationships(): Flow<List<RelationshipEntity>>
+
+    @Query("SELECT * FROM redworld_relationships ORDER BY updatedAt DESC")
+    suspend fun getAllRelationships(): List<RelationshipEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRelationship(relationship: RelationshipEntity): Long
@@ -152,9 +221,37 @@ interface RedWorldDao {
     @Query("SELECT * FROM studio_generated_images ORDER BY createdAt DESC")
     fun observeGeneratedImages(): Flow<List<GeneratedImageEntity>>
 
+    @Query("SELECT * FROM studio_generated_images ORDER BY createdAt DESC")
+    suspend fun getAllGeneratedImages(): List<GeneratedImageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGeneratedImage(image: GeneratedImageEntity): Long
 
     @Delete
     suspend fun deleteGeneratedImage(image: GeneratedImageEntity)
+
+    // ================= PROJECT DATA ISOLATION CLEANUP =================
+    @Query("DELETE FROM redworld_characters WHERE projectId = :projectId")
+    suspend fun deleteCharactersByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_locations WHERE projectId = :projectId")
+    suspend fun deleteLocationsByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_rules WHERE projectId = :projectId")
+    suspend fun deleteRulesByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_plotlines WHERE projectId = :projectId")
+    suspend fun deletePlotlinesByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_events WHERE projectId = :projectId")
+    suspend fun deleteEventsByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_items WHERE projectId = :projectId")
+    suspend fun deleteItemsByProject(projectId: Long)
+
+    @Query("DELETE FROM redworld_relationships WHERE projectId = :projectId")
+    suspend fun deleteRelationshipsByProject(projectId: Long)
+
+    @Query("DELETE FROM studio_generated_images WHERE projectId = :projectId")
+    suspend fun deleteGeneratedImagesByProject(projectId: Long)
 }

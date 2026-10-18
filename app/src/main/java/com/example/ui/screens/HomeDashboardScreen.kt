@@ -22,25 +22,42 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -52,6 +69,7 @@ import com.example.data.local.ChatSessionEntity
 import com.example.data.local.GeneratedImageEntity
 import com.example.data.local.KnowledgeDocumentEntity
 import com.example.data.local.KnowledgeDocumentWithDetails
+import com.example.data.local.WorldProjectEntity
 import com.example.data.preferences.StudioPreferences
 import com.example.ui.MainBottomTab
 import com.example.ui.SecondaryWorkspaceScreen
@@ -59,22 +77,24 @@ import com.example.ui.components.CanonStatusBadge
 import com.example.ui.components.RedWorldHeroArtBanner
 import com.example.ui.components.SectionHeaderRow
 import com.example.ui.theme.AmberGoldSecondary
-import com.example.ui.theme.BurgundyCardBorder
-import com.example.ui.theme.BurgundySurfaceContainer
-import com.example.ui.theme.BurgundySurfaceElevated
+import com.example.ui.theme.CanonVerifiedGreen
 import com.example.ui.theme.CrimsonPrimary
-import com.example.ui.theme.TextIvoryPrimary
-import com.example.ui.theme.TextMutedRose
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeDashboardScreen(
     prefs: StudioPreferences,
+    projects: List<WorldProjectEntity> = emptyList(),
+    activeProject: WorldProjectEntity? = null,
     recentChats: List<ChatSessionEntity>,
     recentDocs: List<KnowledgeDocumentEntity>,
     allDocsWithDetails: List<KnowledgeDocumentWithDetails>,
     characters: List<CharacterEntity>,
     generatedImages: List<GeneratedImageEntity>,
+    onSelectProject: (Long) -> Unit = {},
+    onCreateProjectWithTemplate: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    onToggleArchiveProject: (WorldProjectEntity) -> Unit = {},
+    onDeleteProject: (Long) -> Unit = {},
     onSelectBottomTab: (MainBottomTab) -> Unit,
     onOpenSecondaryScreen: (SecondaryWorkspaceScreen) -> Unit,
     onOpenChatSession: (Long) -> Unit,
@@ -82,6 +102,8 @@ fun HomeDashboardScreen(
     onOpenCharacter: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showCreateProjectDialog by remember { mutableStateOf(false) }
+
     val collections = allDocsWithDetails
         .groupBy { it.document.collectionName }
         .map { it.key to it.value.size }
@@ -96,35 +118,211 @@ fun HomeDashboardScreen(
         // 1. Hero Banner + Service Connection Status
         item {
             RedWorldHeroArtBanner(
-                title = "RedWorld AI Studio",
-                subtitle = "Единое рабочее пространство: Gemini AI, база знаний RAG, редактор канона, XLSX и карта связей",
+                title = "World AI Studio",
+                subtitle = "Активный проект: «${activeProject?.name ?: "RedWorld: Багровый Горизонт"}» • Моделирование миров, персонажей, сюжета и ИИ-симуляция",
                 isGeminiReady = prefs.isGeminiKeyConfigured,
                 isDriveConnected = prefs.googleDriveConnected,
                 onOpenConnections = {
-                    onOpenSecondaryScreen(SecondaryWorkspaceScreen.CONNECTIONS_AND_AUTH)
+                    onOpenSecondaryScreen(SecondaryWorkspaceScreen.SETTINGS)
                 }
             )
         }
 
+        // 1b. Multi-Project Workspace Switcher & World Simulation Globe Card
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("multi_project_switcher_card")
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.FolderSpecial,
+                                contentDescription = null,
+                                tint = AmberGoldSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Проекты и вселенные (${projects.size})",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = (activeProject?.genreOrTheme ?: "").ifBlank { "Авторская вселенная" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AmberGoldSecondary
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showCreateProjectDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = CrimsonPrimary),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("home_create_project_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Новый проект", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(projects, key = { it.id }) { proj ->
+                            val isSelected = activeProject?.id == proj.id
+                            Surface(
+                                color = if (isSelected) CrimsonPrimary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = BorderStroke(1.dp, if (isSelected) CrimsonPrimary else MaterialTheme.colorScheme.outline),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .width(250.dp)
+                                    .clickable { onSelectProject(proj.id) }
+                                    .testTag("project_card_${proj.id}")
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (proj.isArchived) "[Архив] ${proj.name}" else proj.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    Icons.Default.CheckCircle,
+                                                    contentDescription = "Активный проект",
+                                                    tint = CanonVerifiedGreen,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { onToggleArchiveProject(proj) },
+                                                modifier = Modifier.size(22.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Archive,
+                                                    contentDescription = "Архивировать/Восстановить",
+                                                    tint = AmberGoldSecondary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                            if (!isSelected && projects.size > 1) {
+                                                IconButton(
+                                                    onClick = { onDeleteProject(proj.id) },
+                                                    modifier = Modifier.size(22.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Удалить проект",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = proj.description.ifBlank { proj.genreOrTheme },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Globe Quick Launch Row (Симуляция мира и Тестирование персонажа)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, CrimsonPrimary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenSecondaryScreen(SecondaryWorkspaceScreen.WORLD_SIMULATION) }
+                            .testTag("home_open_globe_simulation_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Глобус: Симуляция событий и Тестирование персонажа",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AmberGoldSecondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Режим 1: Генерация черновиков случайных событий • Режим 2: Диалог-тестирование персонажа и оценка по 10 критериям",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Icon(
+                                Icons.Default.Public,
+                                contentDescription = "Глобус симуляции",
+                                tint = CrimsonPrimary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. Quick Actions Grid (Быстрые действия)
         item {
-            SectionHeaderRow(title = "Быстрые действия и модули")
+            SectionHeaderRow(title = "Быстрые действия и разделы проекта")
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 QuickActionChip(
-                    label = "Диалог Gemini",
-                    icon = Icons.AutoMirrored.Filled.Chat,
-                    tag = "quick_action_gemini",
-                    onClick = { onSelectBottomTab(MainBottomTab.GEMINI) }
+                    label = "Симуляция (Глобус)",
+                    icon = Icons.Default.Public,
+                    tag = "quick_action_globe",
+                    onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.WORLD_SIMULATION) }
                 )
                 QuickActionChip(
-                    label = "База знаний RAG",
+                    label = "Документы и Заметки",
                     icon = Icons.Default.MenuBook,
-                    tag = "quick_action_knowledge",
-                    onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.KNOWLEDGE_RAG) }
+                    tag = "quick_action_documents",
+                    onClick = { onSelectBottomTab(MainBottomTab.DOCUMENTS) }
+                )
+                QuickActionChip(
+                    label = "Сюжет и История",
+                    icon = Icons.Default.History,
+                    tag = "quick_action_plot_events",
+                    onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.PLOT) }
                 )
                 QuickActionChip(
                     label = "Карта связей",
@@ -133,37 +331,31 @@ fun HomeDashboardScreen(
                     onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.RELATIONSHIP_MAP) }
                 )
                 QuickActionChip(
+                    label = "Диалог Gemini",
+                    icon = Icons.AutoMirrored.Filled.Chat,
+                    tag = "quick_action_gemini",
+                    onClick = { onSelectBottomTab(MainBottomTab.GEMINI) }
+                )
+                QuickActionChip(
                     label = "Таблицы XLSX",
                     icon = Icons.Default.TableChart,
                     tag = "quick_action_xlsx",
                     onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.XLSX_EDITOR) }
                 )
                 QuickActionChip(
-                    label = "ИИ-Куратор канона",
-                    icon = Icons.Default.AutoAwesome,
-                    tag = "quick_action_ai_curator",
-                    onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.AI_ASSISTANT) }
-                )
-                QuickActionChip(
-                    label = "Google Drive / Бэкап",
+                    label = "Резервные копии",
                     icon = Icons.Default.CloudSync,
-                    tag = "quick_action_drive",
-                    onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.FILES_AND_DRIVE) }
-                )
-                QuickActionChip(
-                    label = "Версии проекта",
-                    icon = Icons.Default.History,
                     tag = "quick_action_versions",
                     onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.VERSIONS_AND_BACKUPS) }
                 )
             }
         }
 
-        // 3. Recent Character Cards (Последние изменённые карточки персонажей)
+        // 3. Recent Character Cards (Карточки персонажей)
         item {
             SectionHeaderRow(
-                title = "Карточки персонажей RedWorld",
-                actionLabel = "Все (${characters.size})",
+                title = "Карточки персонажей (${characters.size})",
+                actionLabel = "Все персонажи",
                 onActionClick = { onSelectBottomTab(MainBottomTab.REDWORLD) }
             )
             LazyRow(
@@ -176,8 +368,8 @@ fun HomeDashboardScreen(
                             .width(265.dp)
                             .clickable { onOpenCharacter(character.id) }
                             .testTag("home_character_card_${character.id}"),
-                        colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                        border = BorderStroke(1.dp, BurgundyCardBorder),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
@@ -197,7 +389,7 @@ fun HomeDashboardScreen(
                                     Text(
                                         text = character.name,
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = TextIvoryPrimary,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -214,7 +406,7 @@ fun HomeDashboardScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Surface(
-                                color = BurgundySurfaceElevated,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -232,7 +424,7 @@ fun HomeDashboardScreen(
                                     Text(
                                         text = "Сейчас: ${character.currentLocationName}",
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = TextIvoryPrimary,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -244,7 +436,7 @@ fun HomeDashboardScreen(
             }
         }
 
-        // 4. Recent Gemini Chats (Последние чаты Gemini)
+        // 4. Recent Gemini Chats
         item {
             SectionHeaderRow(
                 title = "Последние чаты Gemini",
@@ -261,8 +453,8 @@ fun HomeDashboardScreen(
                                 onSelectBottomTab(MainBottomTab.GEMINI)
                             }
                             .testTag("home_chat_item_${chat.id}"),
-                        colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                        border = BorderStroke(1.dp, BurgundyCardBorder)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                     ) {
                         Row(
                             modifier = Modifier
@@ -286,12 +478,12 @@ fun HomeDashboardScreen(
                                     Text(
                                         text = chat.title,
                                         style = MaterialTheme.typography.titleSmall,
-                                        color = TextIvoryPrimary
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "Модель: ${chat.modelId} • Контекст RedWorld: ${if (chat.isRedWorldContextEnabled) "Вкл" else "Выкл"}",
+                                        text = "Модель: ${chat.modelId} • Контекст мира: ${if (chat.isRedWorldContextEnabled) "Вкл" else "Выкл"}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = TextMutedRose
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -301,12 +493,12 @@ fun HomeDashboardScreen(
             }
         }
 
-        // 5. Recently Opened Documents & Active Source Collections
+        // 5. Recently Opened Documents
         item {
             SectionHeaderRow(
-                title = "Недавние документы и коллекции источников",
-                actionLabel = "База знаний",
-                onActionClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.KNOWLEDGE_RAG) }
+                title = "Недавние документы проекта",
+                actionLabel = "Все документы",
+                onActionClick = { onSelectBottomTab(MainBottomTab.DOCUMENTS) }
             )
             if (collections.isNotEmpty()) {
                 FlowRow(
@@ -315,7 +507,7 @@ fun HomeDashboardScreen(
                 ) {
                     collections.forEach { (colName, count) ->
                         AssistChip(
-                            onClick = { onOpenSecondaryScreen(SecondaryWorkspaceScreen.KNOWLEDGE_RAG) },
+                            onClick = { onSelectBottomTab(MainBottomTab.DOCUMENTS) },
                             label = { Text("$colName ($count)") },
                             leadingIcon = {
                                 Icon(
@@ -337,8 +529,8 @@ fun HomeDashboardScreen(
                             .fillMaxWidth()
                             .clickable { onOpenDocument(doc.id) }
                             .testTag("home_doc_item_${doc.id}"),
-                        colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                        border = BorderStroke(1.dp, BurgundyCardBorder)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                     ) {
                         Row(
                             modifier = Modifier
@@ -357,12 +549,12 @@ fun HomeDashboardScreen(
                                 Text(
                                     text = doc.title,
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = TextIvoryPrimary
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "${doc.format} • Папка: ${doc.folderName} • ${doc.collectionName}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextMutedRose
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -371,7 +563,7 @@ fun HomeDashboardScreen(
             }
         }
 
-        // 6. Recent Image Studio Prompts & Generations
+        // 6. Image Studio Card
         item {
             SectionHeaderRow(
                 title = "Image Studio и паспорта внешности",
@@ -382,8 +574,8 @@ fun HomeDashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelectBottomTab(MainBottomTab.GENERATION) },
-                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                border = BorderStroke(1.dp, BurgundyCardBorder)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
             ) {
                 Row(
                     modifier = Modifier.padding(14.dp),
@@ -398,20 +590,93 @@ fun HomeDashboardScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (generatedImages.isEmpty()) "Готовы шаблоны портретов и локаций RedWorld"
-                            else "Сохранено генераций в истории: ${generatedImages.size}",
+                            text = if (generatedImages.isEmpty()) "Генерация портретов персонажей, локаций и сцен"
+                            else "Сохранено иллюстраций в проекте: ${generatedImages.size}",
                             style = MaterialTheme.typography.titleSmall,
-                            color = TextIvoryPrimary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Поддержка паспортов внешности персонажей Виктора Корвина и Елены Ростовой",
+                            text = "Установка как аватарки персонажа и привязка к локациям/событиям",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextMutedRose
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
         }
+    }
+
+    if (showCreateProjectDialog) {
+        var name by remember { mutableStateOf("") }
+        var genre by remember { mutableStateOf("Драма / Городское фэнтези") }
+        var desc by remember { mutableStateOf("") }
+        var templateType by remember { mutableStateOf("BASE_STRUCTURE") }
+
+        AlertDialog(
+            onDismissRequest = { showCreateProjectDialog = false },
+            title = { Text("Создать новый проект мира") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Название мира / проекта") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("new_project_name_input")
+                    )
+                    OutlinedTextField(
+                        value = genre,
+                        onValueChange = { genre = it },
+                        label = { Text("Жанр или тематика") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        label = { Text("Краткое описание вселенной") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text("Шаблон инициализации проекта:", style = MaterialTheme.typography.labelLarge, color = AmberGoldSecondary)
+                    val templates = listOf(
+                        "EMPTY" to "Пустой проект",
+                        "BASE_STRUCTURE" to "С базовой структурой",
+                        "DEMO_REDWORLD" to "Демонстрационный шаблон RedWorld"
+                    )
+                    templates.forEach { (code, label) ->
+                        FilterChip(
+                            selected = templateType == code,
+                            onClick = { templateType = code },
+                            label = { Text(label) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            onCreateProjectWithTemplate(name.trim(), genre.trim(), desc.trim(), templateType)
+                            showCreateProjectDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonPrimary),
+                    modifier = Modifier.testTag("confirm_create_project_button")
+                ) {
+                    Text("Создать проект")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateProjectDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 }
 
@@ -441,9 +706,9 @@ private fun QuickActionChip(
             )
         },
         colors = AssistChipDefaults.assistChipColors(
-            containerColor = BurgundySurfaceElevated,
-            labelColor = TextIvoryPrimary
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurface
         ),
-        border = BorderStroke(1.dp, BurgundyCardBorder)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     )
 }

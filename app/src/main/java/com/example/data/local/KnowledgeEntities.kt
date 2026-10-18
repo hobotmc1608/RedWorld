@@ -36,6 +36,7 @@ enum class DocumentFormat(val label: String, val extension: String) {
 data class KnowledgeDocumentEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,
+    val projectId: Long = 1L,
     val title: String,
     val fileName: String,
     val format: String = DocumentFormat.MARKDOWN.name,
@@ -43,10 +44,14 @@ data class KnowledgeDocumentEntity(
     val collectionName: String = "Основной канон",
     val contentText: String,
     val summary: String = "",
+    val extractedFacts: String = "",
+    val aiAnalysisReport: String = "",
     val localUri: String = "",
     val fileSizeBytes: Long = 0L,
-    val linkedCharacterIdsCsv: String = "", // Comma-separated character IDs
-    val linkedLocationIdsCsv: String = "",  // Comma-separated location IDs
+    val linkedCharacterIdsCsv: String = "", // Comma-separated character names or IDs
+    val linkedLocationIdsCsv: String = "",  // Comma-separated location names or IDs
+    val linkedRuleIdsCsv: String = "",      // Comma-separated world rule titles or IDs
+    val linkedEventIdsCsv: String = "",     // Comma-separated event titles or IDs
     val isAllowedInAiContext: Boolean = true,
     val driveFileId: String? = null,
     val versionNumber: Int = 1,
@@ -103,6 +108,7 @@ data class DocumentChunkEntity(
 data class KnowledgeNoteEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,
+    val projectId: Long = 1L,
     val documentId: Long? = null,
     val title: String,
     val content: String,

@@ -1,12 +1,6 @@
 package com.example.ui.screens
 
-import android.annotation.SuppressLint
-import android.content.Intent
 import android.net.Uri
-import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -27,7 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -35,11 +31,10 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -47,6 +42,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,199 +61,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.local.DocumentFormat
+import com.example.data.local.KnowledgeDocumentEntity
 import com.example.data.local.KnowledgeDocumentWithDetails
 import com.example.data.local.KnowledgeNoteEntity
 import com.example.data.local.KnowledgeTagEntity
 import com.example.ui.components.MarkdownMessageRenderer
 import com.example.ui.theme.AmberGoldSecondary
-import com.example.ui.theme.BurgundyCardBorder
-import com.example.ui.theme.BurgundySurfaceContainer
-import com.example.ui.theme.BurgundySurfaceElevated
 import com.example.ui.theme.CrimsonPrimary
-import com.example.ui.theme.TextIvoryPrimary
-import com.example.ui.theme.TextMutedRose
+import com.example.ui.theme.StatusCanonGreen
 
 /**
- * Dedicated NotebookLM tab (Section 6) with clear transparency about official Google NotebookLM
- * web interface vs. local RedWorld Knowledge RAG library, persistent session cookies, and quick switching.
- */
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun NotebookLmTabScreen(
-    onSwitchToKnowledgeLibrary: () -> Unit,
-    onSwitchToGeminiChat: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    var showEmbeddedWebView by remember { mutableStateOf(false) }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Transparency & Mode Indicator Banner (Required by Section 6)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-            border = BorderStroke(1.dp, BurgundyCardBorder),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = null,
-                        tint = AmberGoldSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Режим интеграции с оригинальным Google NotebookLM",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = TextIvoryPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Потребительский сервис Google NotebookLM не предоставляет открытого публичного REST API для стороннего управления блокнотами. В соответствии с архитектурой безопасности RedWorld AI Studio предоставляет:\n" +
-                        "1) Прямой доступ к оригинальному веб-интерфейсу notebooklm.google.com с сохранением авторизованной сессии.\n" +
-                        "2) Независимую офлайн-систему RedWorld Knowledge (локальная БД Room + RAG) для работы с вашими PDF, DOCX, XLSX и MD файлами.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMutedRose
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { showEmbeddedWebView = !showEmbeddedWebView },
-                        colors = ButtonDefaults.buttonColors(containerColor = CrimsonPrimary),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("toggle_notebooklm_webview_button")
-                    ) {
-                        Text(if (showEmbeddedWebView) "Скрыть WebView" else "Открыть NotebookLM в приложении")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://notebooklm.google.com"))
-                            context.startActivity(intent)
-                        },
-                        modifier = Modifier.testTag("open_notebooklm_external_button")
-                    ) {
-                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Браузер")
-                    }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AssistChip(
-                        onClick = onSwitchToKnowledgeLibrary,
-                        label = { Text("Перейти в RedWorld Knowledge (Локальный RAG)") }
-                    )
-                    AssistChip(
-                        onClick = onSwitchToGeminiChat,
-                        label = { Text("К чату Gemini") }
-                    )
-                }
-            }
-        }
-
-        if (showEmbeddedWebView) {
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                border = BorderStroke(1.dp, BurgundyCardBorder),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Сессия: notebooklm.google.com (Cookies сохранены)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = AmberGoldSecondary
-                        )
-                        IconButton(
-                            onClick = { webViewRef?.reload() },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Обновить", tint = TextIvoryPrimary)
-                        }
-                    }
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                val cookieManager = CookieManager.getInstance()
-                                cookieManager.setAcceptCookie(true)
-                                cookieManager.setAcceptThirdPartyCookies(this, true)
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.databaseEnabled = true
-                                webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(
-                                        view: WebView?,
-                                        request: WebResourceRequest?
-                                    ): Boolean = false
-                                }
-                                loadUrl("https://notebooklm.google.com")
-                                webViewRef = this
-                            }
-                        }
-                    )
-                }
-            }
-        } else {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceElevated),
-                border = BorderStroke(1.dp, BurgundyCardBorder)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Быстрое взаимодействие NotebookLM ↔ RedWorld",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextIvoryPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "• Используйте оригинальный NotebookLM для аудио-обзоров и глобальных сводок Google.\n" +
-                            "• Используйте RedWorld Knowledge для офлайн-хранения PDF, TXT, MD, DOCX, XLSX, привязки тегов и персонажей, а также точного RAG-поиска с цитатами в Gemini.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextMutedRose
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Full RedWorld Knowledge Module (Section 7):
- * Documents (PDF, TXT, Markdown, DOCX, XLSX), Folders & Collections, Notes, Tags,
- * RAG chunks inspection, and direct Q&A via Gemini with cited source navigation.
+ * Собственная система работы с документами и заметками («Документы» и «Заметки»):
+ * - Импорт поддерживаемых файлов (.txt, .md, .pdf, .docx, .xlsx, .json)
+ * - Просмотр документов и индексированных фрагментов
+ * - Поиск по документам и фильтрация по папкам/тегам
+ * - Краткий пересказ с помощью ИИ
+ * - Извлечение фактов с помощью ИИ
+ * - Анализ документа с помощью ИИ
+ * - Связывание документов с персонажами, локациями, правилами мира и событиями
+ * - Раздел «Заметки» и система тегов
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -276,23 +103,26 @@ fun RedWorldKnowledgeScreen(
     onDeleteTag: (Long) -> Unit,
     onAttachTagToDoc: (Long, Long) -> Unit,
     onAskGeminiAboutDocument: (String) -> Unit,
+    onRunDocumentAiAction: (KnowledgeDocumentEntity, String) -> Unit = { _, _ -> },
+    onUpdateDocumentEntityLinks: (KnowledgeDocumentEntity, String, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    initialSubTab: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    var activeSubTab by remember { mutableIntStateOf(0) } // 0 = Документы, 1 = Просмотр и RAG, 2 = Заметки, 3 = Теги
+    var activeSubTab by remember(initialSubTab) { mutableIntStateOf(initialSubTab.coerceIn(0, 3)) }
+    // 0 = Документы, 1 = Чтение, ИИ-анализ и связи, 2 = Заметки, 3 = Теги
     var searchQuery by remember { mutableStateOf("") }
     var selectedFolderFilter by remember { mutableStateOf("Все") }
     var showAddDocDialog by remember { mutableStateOf(false) }
     var showAddNoteDialog by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
+    var editingLinksForDoc by remember { mutableStateOf<KnowledgeDocumentEntity?>(null) }
 
-    // SAF launcher for importing PDF, TXT, MD, DOCX, XLSX
     val fileImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "imported_source.txt"
-            onImportDocumentUri(uri, fileName, "Импортированные файлы", "Внешние источники")
+            val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "imported_document.txt"
+            onImportDocumentUri(uri, fileName, "Импортированные файлы", "Документы проекта")
         }
     }
 
@@ -306,6 +136,8 @@ fun RedWorldKnowledgeScreen(
             val matchesQuery = searchQuery.isBlank() ||
                 item.document.title.contains(searchQuery, ignoreCase = true) ||
                 item.document.contentText.contains(searchQuery, ignoreCase = true) ||
+                item.document.linkedCharacterIdsCsv.contains(searchQuery, ignoreCase = true) ||
+                item.document.linkedLocationIdsCsv.contains(searchQuery, ignoreCase = true) ||
                 item.tags.any { it.name.contains(searchQuery, ignoreCase = true) }
             matchesFolder && matchesQuery
         }
@@ -317,19 +149,19 @@ fun RedWorldKnowledgeScreen(
     Column(modifier = modifier.fillMaxSize()) {
         TabRow(
             selectedTabIndex = activeSubTab,
-            containerColor = BurgundySurfaceContainer,
-            contentColor = CrimsonPrimary
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.primary
         ) {
             Tab(
                 selected = activeSubTab == 0,
                 onClick = { activeSubTab = 0 },
-                text = { Text("Источники (${documents.size})") },
+                text = { Text("Документы (${documents.size})") },
                 modifier = Modifier.testTag("knowledge_tab_documents")
             )
             Tab(
                 selected = activeSubTab == 1,
                 onClick = { activeSubTab = 1 },
-                text = { Text("Чтение и RAG") },
+                text = { Text("Просмотр и ИИ-анализ") },
                 modifier = Modifier.testTag("knowledge_tab_reader")
             )
             Tab(
@@ -347,7 +179,7 @@ fun RedWorldKnowledgeScreen(
         }
 
         when (activeSubTab) {
-            // TAB 0: DOCUMENTS & COLLECTIONS
+            // TAB 0: DOCUMENTS & IMPORT & SEARCH
             0 -> {
                 Column(
                     modifier = Modifier
@@ -366,7 +198,7 @@ fun RedWorldKnowledgeScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("knowledge_search_input"),
-                            placeholder = { Text("Поиск по документам, тексту и тегам...") },
+                            placeholder = { Text("Поиск по документам, фактам и связям...") },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                             singleLine = true
                         )
@@ -420,10 +252,10 @@ fun RedWorldKnowledgeScreen(
                                         activeSubTab = 1
                                     }
                                     .testTag("knowledge_doc_card_${doc.id}"),
-                                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                                border = BorderStroke(1.dp, BurgundyCardBorder)
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -443,7 +275,8 @@ fun RedWorldKnowledgeScreen(
                                                 Text(
                                                     text = doc.title,
                                                     style = MaterialTheme.typography.titleMedium,
-                                                    color = TextIvoryPrimary
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
                                                     text = "${doc.format} • Папка: ${doc.folderName} • Коллекция: ${doc.collectionName}",
@@ -452,24 +285,44 @@ fun RedWorldKnowledgeScreen(
                                                 )
                                             }
                                         }
-                                        IconButton(onClick = { onDeleteDocument(doc.id) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = TextMutedRose)
+                                        Row {
+                                            IconButton(onClick = { editingLinksForDoc = doc }) {
+                                                Icon(Icons.Default.Link, contentDescription = "Связать с сущностями", tint = AmberGoldSecondary)
+                                            }
+                                            IconButton(onClick = { onDeleteDocument(doc.id) }) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = doc.summary.ifEmpty { doc.contentText.take(140) },
+                                        text = doc.summary.ifEmpty { doc.contentText.take(150) },
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = TextMutedRose,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
 
+                                    // Display entity links if present
+                                    val linksSummary = buildList {
+                                        if (doc.linkedCharacterIdsCsv.isNotBlank()) add("Персонажи: ${doc.linkedCharacterIdsCsv}")
+                                        if (doc.linkedLocationIdsCsv.isNotBlank()) add("Локации: ${doc.linkedLocationIdsCsv}")
+                                        if (doc.linkedRuleIdsCsv.isNotBlank()) add("Правила: ${doc.linkedRuleIdsCsv}")
+                                        if (doc.linkedEventIdsCsv.isNotBlank()) add("События: ${doc.linkedEventIdsCsv}")
+                                    }.joinToString(" • ")
+
+                                    if (linksSummary.isNotBlank()) {
+                                        Text(
+                                            text = "Связи: $linksSummary",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = StatusCanonGreen
+                                        )
+                                    }
+
                                     if (item.tags.isNotEmpty()) {
                                         FlowRow(
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier.padding(top = 6.dp)
+                                            modifier = Modifier.padding(top = 4.dp)
                                         ) {
                                             item.tags.forEach { tag ->
                                                 AssistChip(
@@ -486,11 +339,11 @@ fun RedWorldKnowledgeScreen(
                 }
             }
 
-            // TAB 1: DOCUMENT READER & RAG CHUNKS + ASK GEMINI
+            // TAB 1: DOCUMENT READER, AI SUMMARY, FACT EXTRACTION, AI ANALYSIS & ENTITY LINKING
             1 -> {
                 if (activeDocWithDetails == null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Выберите документ во вкладке «Источники»")
+                        Text("Выберите документ во вкладке «Документы»")
                     }
                 } else {
                     val doc = activeDocWithDetails.document
@@ -502,17 +355,74 @@ fun RedWorldKnowledgeScreen(
                     ) {
                         item {
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceElevated),
-                                border = BorderStroke(1.dp, BurgundyCardBorder)
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text(doc.title, style = MaterialTheme.typography.headlineMedium, color = TextIvoryPrimary)
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(doc.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                     Text(
-                                        "Файл: ${doc.fileName} (${doc.format}) • Папка: ${doc.folderName} • RAG-фрагментов: ${activeDocWithDetails.chunks.size}",
+                                        "Файл: ${doc.fileName} (${doc.format}) • Папка: ${doc.folderName} • Фрагментов: ${activeDocWithDetails.chunks.size}",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = AmberGoldSecondary
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // AI Document Actions: Краткий пересказ, Извлечение фактов, Анализ документа, Связи
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { onRunDocumentAiAction(doc, "SUMMARY") },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CrimsonPrimary),
+                                            modifier = Modifier.testTag("doc_ai_summary_btn")
+                                        ) {
+                                            Icon(Icons.Default.Summarize, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Краткий пересказ ИИ")
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { onRunDocumentAiAction(doc, "FACTS") },
+                                            modifier = Modifier.testTag("doc_ai_facts_btn")
+                                        ) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Извлечь факты")
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { onRunDocumentAiAction(doc, "ANALYSIS") },
+                                            modifier = Modifier.testTag("doc_ai_analysis_btn")
+                                        ) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Анализ документа")
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { editingLinksForDoc = doc },
+                                            modifier = Modifier.testTag("doc_edit_links_btn")
+                                        ) {
+                                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Связать с миром")
+                                        }
+                                    }
+
+                                    // Entity Links Display
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("Связи документа с сущностями мира:", style = MaterialTheme.typography.labelLarge, color = StatusCanonGreen)
+                                            Text("• Персонажи: ${doc.linkedCharacterIdsCsv.ifBlank { "Не привязаны" }}", style = MaterialTheme.typography.bodySmall)
+                                            Text("• Локации: ${doc.linkedLocationIdsCsv.ifBlank { "Не привязаны" }}", style = MaterialTheme.typography.bodySmall)
+                                            Text("• Правила мира: ${doc.linkedRuleIdsCsv.ifBlank { "Не привязаны" }}", style = MaterialTheme.typography.bodySmall)
+                                            Text("• События хронологии: ${doc.linkedEventIdsCsv.ifBlank { "Не привязаны" }}", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -522,7 +432,7 @@ fun RedWorldKnowledgeScreen(
                                             value = questionAboutDoc,
                                             onValueChange = { questionAboutDoc = it },
                                             modifier = Modifier.weight(1f),
-                                            placeholder = { Text("Задать вопрос по этому источнику через Gemini...") },
+                                            placeholder = { Text("Задать вопрос по документу через Gemini...") },
                                             singleLine = true
                                         )
                                         Button(
@@ -534,8 +444,6 @@ fun RedWorldKnowledgeScreen(
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = CrimsonPrimary)
                                         ) {
-                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text("Спросить")
                                         }
                                     }
@@ -543,17 +451,64 @@ fun RedWorldKnowledgeScreen(
                             }
                         }
 
+                        // AI Summary, Extracted Facts & Analysis Cards
+                        if (doc.summary.isNotBlank()) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    border = BorderStroke(1.dp, AmberGoldSecondary)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text("Краткий пересказ (ИИ):", style = MaterialTheme.typography.titleSmall, color = AmberGoldSecondary, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(doc.summary, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (doc.extractedFacts.isNotBlank()) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    border = BorderStroke(1.dp, StatusCanonGreen)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text("Извлечённые факты:", style = MaterialTheme.typography.titleSmall, color = StatusCanonGreen, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(doc.extractedFacts, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (doc.aiAnalysisReport.isNotBlank()) {
+                            item {
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    border = BorderStroke(1.dp, CrimsonPrimary)
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text("Анализ документа и связей с каноном:", style = MaterialTheme.typography.titleSmall, color = CrimsonPrimary, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(doc.aiAnalysisReport, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+
                         item {
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                                border = BorderStroke(1.dp, BurgundyCardBorder),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = "Содержимое документа",
+                                        text = "Полный текст документа",
                                         style = MaterialTheme.typography.titleMedium,
-                                        color = AmberGoldSecondary
+                                        color = AmberGoldSecondary,
+                                        fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     MarkdownMessageRenderer(markdownText = doc.contentText)
@@ -563,16 +518,16 @@ fun RedWorldKnowledgeScreen(
 
                         item {
                             Text(
-                                text = "Индексированные RAG-фрагменты для точного цитирования (${activeDocWithDetails.chunks.size})",
+                                text = "Индексированные фрагменты документа (${activeDocWithDetails.chunks.size})",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = TextIvoryPrimary
+                                fontWeight = FontWeight.Bold
                             )
                         }
 
                         items(activeDocWithDetails.chunks, key = { it.id }) { chunk ->
                             Surface(
-                                color = BurgundySurfaceContainer,
-                                border = BorderStroke(1.dp, BurgundyCardBorder),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -586,8 +541,7 @@ fun RedWorldKnowledgeScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = chunk.chunkText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextIvoryPrimary
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                             }
@@ -596,7 +550,7 @@ fun RedWorldKnowledgeScreen(
                 }
             }
 
-            // TAB 2: NOTES
+            // TAB 2: NOTES (ЗАМЕТКИ)
             2 -> {
                 Column(
                     modifier = Modifier
@@ -610,9 +564,9 @@ fun RedWorldKnowledgeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Исследовательские заметки RedWorld",
+                            text = "Авторские заметки проекта",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextIvoryPrimary
+                            fontWeight = FontWeight.Bold
                         )
                         Button(
                             onClick = { showAddNoteDialog = true },
@@ -634,8 +588,8 @@ fun RedWorldKnowledgeScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("knowledge_note_card_${note.id}"),
-                                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                                border = BorderStroke(1.dp, BurgundyCardBorder)
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Row(
@@ -654,22 +608,21 @@ fun RedWorldKnowledgeScreen(
                                             Text(
                                                 text = note.title,
                                                 style = MaterialTheme.typography.titleSmall,
-                                                color = TextIvoryPrimary
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
                                         IconButton(onClick = { onDeleteNote(note.id) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Удалить заметку", tint = TextMutedRose)
+                                            Icon(Icons.Default.Delete, contentDescription = "Удалить заметку")
                                         }
                                     }
                                     Text(
                                         text = note.content,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = TextIvoryPrimary
+                                        style = MaterialTheme.typography.bodyMedium
                                     )
                                     if (note.quotedExcerpt.isNotBlank()) {
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Surface(
-                                            color = BurgundySurfaceElevated,
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
@@ -702,9 +655,9 @@ fun RedWorldKnowledgeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Система тегов и категорий источников",
+                            text = "Система тегов и категорий документов",
                             style = MaterialTheme.typography.titleMedium,
-                            color = TextIvoryPrimary
+                            fontWeight = FontWeight.Bold
                         )
                         Button(
                             onClick = { showAddTagDialog = true },
@@ -726,8 +679,8 @@ fun RedWorldKnowledgeScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("knowledge_tag_card_${tag.id}"),
-                                colors = CardDefaults.cardColors(containerColor = BurgundySurfaceContainer),
-                                border = BorderStroke(1.dp, BurgundyCardBorder)
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -740,8 +693,8 @@ fun RedWorldKnowledgeScreen(
                                         Icon(Icons.Default.Label, contentDescription = null, tint = CrimsonPrimary)
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Column {
-                                            Text("#${tag.name}", style = MaterialTheme.typography.titleSmall, color = TextIvoryPrimary)
-                                            Text("Категория: ${tag.category}", style = MaterialTheme.typography.bodySmall, color = TextMutedRose)
+                                            Text("#${tag.name}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                            Text("Категория: ${tag.category}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                     Row {
@@ -751,7 +704,7 @@ fun RedWorldKnowledgeScreen(
                                             }
                                         }
                                         IconButton(onClick = { onDeleteTag(tag.id) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Удалить тег", tint = TextMutedRose)
+                                            Icon(Icons.Default.Delete, contentDescription = "Удалить тег")
                                         }
                                     }
                                 }
@@ -763,6 +716,67 @@ fun RedWorldKnowledgeScreen(
         }
     }
 
+    // Dialog: Link Document to Characters, Locations, Rules, Events
+    if (editingLinksForDoc != null) {
+        val doc = editingLinksForDoc!!
+        var chars by remember(doc) { mutableStateOf(doc.linkedCharacterIdsCsv) }
+        var locs by remember(doc) { mutableStateOf(doc.linkedLocationIdsCsv) }
+        var rules by remember(doc) { mutableStateOf(doc.linkedRuleIdsCsv) }
+        var events by remember(doc) { mutableStateOf(doc.linkedEventIdsCsv) }
+
+        AlertDialog(
+            onDismissRequest = { editingLinksForDoc = null },
+            title = { Text("Связи документа «${doc.title}»") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Укажите связанные сущности проекта (через запятую):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = chars,
+                        onValueChange = { chars = it },
+                        label = { Text("Связанные персонажи (Катрин, Александра и др.)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = locs,
+                        onValueChange = { locs = it },
+                        label = { Text("Связанные локации (Красный особняк и др.)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = rules,
+                        onValueChange = { rules = it },
+                        label = { Text("Связанные правила мира") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = events,
+                        onValueChange = { events = it },
+                        label = { Text("Связанные события хронологии") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateDocumentEntityLinks(doc, chars.trim(), locs.trim(), rules.trim(), events.trim())
+                        editingLinksForDoc = null
+                    }
+                ) { Text("Сохранить связи") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingLinksForDoc = null }) { Text("Отмена") }
+            }
+        )
+    }
+
     // Dialog: Create Document
     if (showAddDocDialog) {
         var title by remember { mutableStateOf("") }
@@ -771,7 +785,7 @@ fun RedWorldKnowledgeScreen(
         var content by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAddDocDialog = false },
-            title = { Text("Добавить источник в RedWorld Knowledge") },
+            title = { Text("Создать документ проекта") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Название документа") })
@@ -795,7 +809,7 @@ fun RedWorldKnowledgeScreen(
                                 DocumentFormat.MARKDOWN,
                                 folder,
                                 collection,
-                                content.ifBlank { "# $title\nОписание источника RedWorld." },
+                                content.ifBlank { "# $title\nОписание документа." },
                                 emptyList()
                             )
                             showAddDocDialog = false
@@ -821,7 +835,7 @@ fun RedWorldKnowledgeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = noteTitle, onValueChange = { noteTitle = it }, label = { Text("Заголовок заметки") })
                     OutlinedTextField(value = noteContent, onValueChange = { noteContent = it }, label = { Text("Содержание заметки") }, minLines = 3)
-                    OutlinedTextField(value = noteQuote, onValueChange = { noteQuote = it }, label = { Text("Цитата из источника (необязательно)") })
+                    OutlinedTextField(value = noteQuote, onValueChange = { noteQuote = it }, label = { Text("Цитата из документа (необязательно)") })
                 }
             },
             confirmButton = {
